@@ -73,28 +73,14 @@ def image_segmentation(image_array, threshold=30, convergence_threshold=1.0, max
 
     return segmented_image
 
-def display_image(window_name, image_array):
-    """
-    Saves the image to a file and optionally displays it using Matplotlib.
-
-    Parameters:
-        window_name (str): Name for the saved image file.
-        image_array (numpy.ndarray): Image to save/display.
-    """
-    
-    output_path = f"{window_name.replace(' ', '_')}.png"
-    cv2.imwrite(output_path, image_array)
-    print(f"Image saved as {output_path}")
-
-    
-    """
-    image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+def display_image(window_name, image):
+    """Displays an image using Matplotlib."""
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) 
     plt.figure(window_name)
     plt.imshow(image_rgb)
     plt.title(window_name)
     plt.axis('off')
     plt.show()
-    """
 
 
 if __name__ == "__main__":
