@@ -1,163 +1,268 @@
 import numpy as np
 import cv2
+
+def rgb2lab(image):
+    """Convert RGB image to Lab color space using OpenCV."""
+    return cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+
+def initialize_centers(image, S):
+    """Initialize centers on a grid with spacing S."""
+    h, w, _ = image.shape
+    centers = []
+    for y in range(S//2, h, S):
+        for x in range(S//2, w, S):
+            centers.append([y, x, *image[y, x]])  # [row, col, L, a, b]
+    print(f"new shape of the image matrix: {image.shape}")
+    return np.array(centers, dtype=np.float32)
+
+def create_label_distance_maps(h, w):
+    """Create label and distance maps."""
+    labels = -1 * np.ones((h, w), dtype=np.int32)
+    distances = np.full((h, w), np.inf, dtype=np.float32)
+    return labels, distances
+
+def compute_distance(center, lab_image, y, x, m, S):
+    """Compute combined color+spatial distance."""
+    color_diff = lab_image[y, x] - center[2:]
+    dc = np.linalg.norm(color_diff)
+    ds = np.linalg.norm(np.array([y, x]) - center[:2])
+    return np.sqrt((dc)**2 + (m/S * ds)**2)
+
+def slic_superpixels(image, num_superpixels=100, m=10, num_iterations=5):
+    """
+    Perform simple SLIC superpixel clustering from scratch.
+    
+    image: RGB image (np.array)
+    num_superpixels: target number of superpixels
+    m: compactness factor
+    num_iterations: how many iterations to run
+    """
+    h, w, _ = image.shape
+    N = h * w
+    S = int(np.sqrt(N / num_superpixels))  # grid interval
+
+    lab_image = rgb2lab(image)
+    centers = initialize_centers(lab_image, S)
+    labels, distances = create_label_distance_maps(h, w)
+
+    for it in range(num_iterations):
+        print(f"Iteration {it+1}/{num_iterations}")
+
+        for idx, center in enumerate(centers):
+            y0, x0 = int(center[0]), int(center[1])
+            y_min, y_max = max(0, y0-S), min(h, y0+S)
+            x_min, x_max = max(0, x0-S), min(w, x0+S)
+
+            for y in range(y_min, y_max):
+                for x in range(x_min, x_max):
+                    d = compute_distance(center, lab_image, y, x, m, S)
+                    if d < distances[y, x]:
+                        distances[y, x] = d
+                        labels[y, x] = idx
+
+        # Update centers
+        new_centers = np.zeros_like(centers)
+        count = np.zeros((centers.shape[0], 1), dtype=np.float32)
+
+        for y in range(h):
+            for x in range(w):
+                label = labels[y, x]
+                if label >= 0:
+                    new_centers[label, 0] += y
+                    new_centers[label, 1] += x
+                    new_centers[label, 2:] += lab_image[y, x]
+                    count[label] += 1
+
+        for i in range(centers.shape[0]):
+            if count[i] > 0:
+                new_centers[i] /= count[i]
+
+        centers = new_centers
+
+    return labels , centers 
+
+def draw_contours(image, labels):
+    """Draw superpixel contours on the image."""
+    contour_img = image.copy()
+    mask = np.zeros(labels.shape, dtype=np.uint8)
+
+    h, w = labels.shape
+    for y in range(1, h-1):
+        for x in range(1, w-1):
+            if (labels[y, x] != labels[y+1, x]) or (labels[y, x] != labels[y, x+1]):
+                mask[y, x] = 255
+
+    contour_img[mask == 255] = [0, 255, 0]  # Green contours
+    return contour_img
+
+
+def extract_features(image, labels, num_superpixels):
+    features = []
+    centers = []
+    
+    for i in range(num_superpixels):
+        # Find the mask of the current superpixel
+        mask = (labels == i)
+        
+        # Get the coordinates of the pixels in the current superpixel
+        coords = np.column_stack(np.where(mask))  # (y, x) coordinates
+        
+        # Get the mean color of the superpixel
+        mean_color = np.mean(image[mask], axis=0)
+        
+        # Get the center of the superpixel (average coordinates)
+        center = np.mean(coords, axis=0)
+        
+        # Combine color and position into a feature vector
+        feature_vector = np.hstack([mean_color, center])
+        
+        features.append(feature_vector)
+        centers.append(center)
+    
+    return np.array(features), np.array(centers)
+
 import matplotlib.pyplot as plt
-from scipy.sparse import lil_matrix
-from scipy.linalg import eigh
-from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import eigsh
 
+class AgglomerativeClusteringFromScratch:
+    def __init__(self, n_clusters=2, linkage='single'):
+        self.n_clusters = n_clusters
+        self.linkage = linkage
 
-# Step 1: Canny Edge Detection
-def apply_canny_edge_detection(image):
-    print(image.shape)
-    edges = cv2.Canny(image, threshold1=100, threshold2=200)
-    return edges
+    def fit(self, features):
+        self.features = features
+        self.clusters = {i: [i] for i in range(len(features))}
+        self.labels = np.arange(len(features))
 
+        while len(self.clusters) > self.n_clusters:
+            cluster_pair = self.find_closest_clusters()
 
+            if cluster_pair is None:
+                print("No more clusters can be merged.")
+                break
 
+            cluster_1, cluster_2 = cluster_pair
+            print(f"Merging clusters {cluster_1} and {cluster_2}")
+            self.merge_clusters(cluster_1, cluster_2)
 
-# Step 2: Construct Graph based on pixel similarity (color similarity)
-def construct_graph(image, edges):
-    height, width = image.shape[:2]
-    num_pixels = height * width
-    print(num_pixels)
-    graph = lil_matrix((num_pixels, num_pixels), dtype=np.float64)
+        # Remap cluster IDs to 0...n_clusters-1
+        unique_cluster_ids = list(self.clusters.keys())
+        id_mapping = {old_id: new_id for new_id, old_id in enumerate(unique_cluster_ids)}
 
-    # Convert image into 2D array of pixel intensities (flattened)
-    image_reshaped = image.reshape((-1, 3))  # Shape: (num_pixels, 3)
-    print(image_reshaped.shape)
-    # Construct a graph based on color similarity and edge connectivity
-    for i in range(height):
-        for j in range(width):
-            idx1 = i * width + j  # Flattened index for pixel (i, j)
-            
-            for di in range(-1, 2):  # Neighbors' relative positions
-                for dj in range(-1, 2):
-                    ni, nj = i + di, j + dj
-                    if 0 <= ni < height and 0 <= nj < width:
-                        idx2 = ni * width + nj
-                        
-                        # Only consider edges detected by Canny
-                        if edges[i, j] == 255 and edges[ni, nj] == 255:
-                            dist = np.linalg.norm(image_reshaped[idx1] - image_reshaped[idx2])
-                            graph[idx1, idx2] = np.exp(-dist**2 / (2.0 * (10**2)))  # Gaussian kernel
+        self.final_labels = np.zeros(len(features), dtype=np.int32)
+        for cluster_id, points in self.clusters.items():
+            new_cluster_id = id_mapping[cluster_id]
+            for point in points:
+                self.final_labels[point] = new_cluster_id
 
-    return graph
-# Rest of the implementation stays the same, including Laplacian, Spectral Clustering, etc.
+    def compute_distance_matrix(self, features):
+        n = len(features)
+        distances = np.full((n, n), np.inf)
+        for i in range(n):
+            for j in range(i + 1, n):
+                dist = np.linalg.norm(features[i] - features[j])
+                distances[i, j] = dist
+                distances[j, i] = dist
+        return distances
 
+    def find_closest_clusters(self):
+        min_dist = np.inf
+        cluster_pair = None
+        cluster_ids = list(self.clusters.keys())
 
-# Step 3: Calculate the Laplacian Matrix of the Graph
-def compute_laplacian(graph):
-    # Create a sparse matrix for the degree matrix
-    degree_matrix = lil_matrix((graph.shape[0], graph.shape[0]), dtype=np.float32)
-    
-    # Compute degree matrix (diagonal with sum of edges for each node)
-    row_sums = np.array(graph.sum(axis=1)).flatten()
-    degree_matrix.setdiag(row_sums)  # Set diagonal to sum of each row (degree)
+        for i in range(len(cluster_ids)):
+            for j in range(i + 1, len(cluster_ids)):
+                cluster_1 = cluster_ids[i]
+                cluster_2 = cluster_ids[j]
+                dist = self.compute_linkage_distance(self.clusters[cluster_1], self.clusters[cluster_2])
+                if dist < min_dist:
+                    min_dist = dist
+                    cluster_pair = (cluster_1, cluster_2)
 
-    # The Laplacian is L = D - A, where A is the graph adjacency matrix (sparse)
-    laplacian_matrix = degree_matrix - graph
+        return cluster_pair
 
-    return laplacian_matrix
+    def compute_linkage_distance(self, cluster1, cluster2):
+        if self.linkage == 'single':
+            return min(
+                np.linalg.norm(self.features[i] - self.features[j])
+                for i in cluster1 for j in cluster2
+            )
+        elif self.linkage == 'complete':
+            return max(
+                np.linalg.norm(self.features[i] - self.features[j])
+                for i in cluster1 for j in cluster2
+            )
+        else:
+            raise ValueError("Unsupported linkage method")
 
+    def merge_clusters(self, cluster_1, cluster_2):
+        new_cluster_points = self.clusters[cluster_1] + self.clusters[cluster_2]
+        del self.clusters[cluster_1]
+        del self.clusters[cluster_2]
+        new_cluster_id = max(self.clusters.keys(), default=-1) + 1
+        self.clusters[new_cluster_id] = new_cluster_points
 
-# Step 4: Eigenvalue Decomposition of the Laplacian Matrix
-def eigen_decomposition(laplacian_matrix, num_clusters):
-    # Compute the eigenvalues and eigenvectors
+def visualize_clusters(image, labels, superpixel_map, num_clusters):
+    output_image = image.copy()
+    colors = np.random.randint(0, 255, size=(num_clusters, 3), dtype=np.uint8)
 
-    # Convert the Laplacian matrix to sparse format (if it's sparse)
-    laplacian_sparse = csr_matrix(laplacian_matrix)
+    h, w = superpixel_map.shape
+    clustered_image = np.zeros((h, w, 3), dtype=np.uint8)
 
-    # Compute the smallest eigenvalues and eigenvectors using sparse eigensolver
-    eigenvalues, eigenvectors = eigsh(laplacian_sparse, k=num_clusters + 1, which='SM')
+    for superpixel_id in range(len(labels)):
+        mask = (superpixel_map == superpixel_id)
+        clustered_image[mask] = colors[labels[superpixel_id]]
 
-    # Now you can use the eigenvectors (ignoring the first eigenvector)
-    embedding = eigenvectors[:, 1:num_clusters + 1]
-    # Take the first 'num_clusters' eigenvectors (ignore the first eigenvalue)
-    return embedding
-
-# Step 5: Spectral Clustering
-def spectral_clustering(laplacian_matrix, num_clusters):
-    # Step 4: Eigen decomposition
-    print(laplacian_matrix.shape)
-    eigenvectors = eigen_decomposition(laplacian_matrix, num_clusters)
-    
-    # Normalize the eigenvectors row-wise
-    rows_norm = np.linalg.norm(eigenvectors, axis=1, keepdims=True)
-    eigenvectors_normalized = eigenvectors / rows_norm
-    
-    # Perform K-means clustering on the eigenvectors to get the clusters
-    # For simplicity, we use basic K-means (random initialization and iterative refinement)
-    
-    # Randomly initialize centroids
-    centroids = eigenvectors_normalized[np.random.choice(eigenvectors_normalized.shape[0], num_clusters, replace=False)]
-    prev_centroids = centroids.copy()
-    
-    while True:
-        # Assign each pixel to the closest centroid
-        distances = np.linalg.norm(eigenvectors_normalized[:, np.newaxis] - centroids, axis=2)
-        labels = np.argmin(distances, axis=1)
-        
-        # Recompute centroids
-        for k in range(num_clusters):
-            centroids[k] = eigenvectors_normalized[labels == k].mean(axis=0)
-        
-        # Convergence check
-        if np.all(centroids == prev_centroids):
-            break
-        prev_centroids = centroids.copy()
-    
-    return labels
-
-# Step 6: Main Spectral Agglomerative Segmentation Function
-def spectral_agglomerative_segmentation(image, num_clusters=5):
-    # Step 1: Apply edge detection
-    edges = apply_canny_edge_detection(image)
-    
-    # Step 2: Construct similarity graph
-    graph = construct_graph(image, edges)
-    
-    # Step 3: Compute the Laplacian matrix
-    laplacian_matrix = compute_laplacian(graph)
-    
-    # Step 4: Perform Spectral Clustering
-    labels = spectral_clustering(laplacian_matrix, num_clusters)
-    
-    # Reshape the labels back into the image shape
-    height, width = image.shape[:2]
-    segmented_image = labels.reshape((height, width))
-    
-    return segmented_image
-
-# Step 7: Visualization
-def display_results(image, segmented_image):
-    # Display the original image
-    plt.subplot(1, 2, 1)
-    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    plt.title("Original Image")
-    
-    # Display the segmented image
-    plt.subplot(1, 2, 2)
-    plt.imshow(segmented_image, cmap='nipy_spectral')
-    plt.title("Segmented Image")
-    
+    plt.imshow(clustered_image)
+    plt.title(f"Clusters: {num_clusters}")
+    plt.axis('off')
     plt.show()
+
+
+# Main function to run everything
+def main(image_path, num_clusters=10, num_superpixels=100): 
+    # Step 1: Load the image
+    image = cv2.imread(image_path)
+    
+        # Load an image
+    image = cv2.imread('bird.jpg')
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # Step 2: Generate superpixels
+    labels, centers = slic_superpixels(image, num_superpixels=num_superpixels, m=10)
+
+    # Step 3: Extract features from superpixels
+    features, _ = extract_features(image, labels, num_superpixels)
+
+    # Step 4: Apply Agglomerative Clustering
+    agglomerative = AgglomerativeClusteringFromScratch(n_clusters=num_clusters, linkage='single')
+    agglomerative.fit(features)
+
+    # Step 5: Visualize the clustering result
+    visualize_clusters(image,  agglomerative.final_labels, labels, num_clusters)
+
+# Run the program with an example image
+image_path = 'bird.jpg'  # Replace with your image path
+
 
 
 
 
 if __name__ == "__main__":
-    # Load an example image
-    image = cv2.imread('bird.jpg')  # Replace with your image file
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = cv2.resize(image, (256, 256))  # Resize for faster processing
-    image_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    main(image_path, num_clusters=2)
 
-    # Display the results
-    edges  =apply_canny_edge_detection(image_gray)
-    graph = construct_graph(image, edges)
-    laplacian = compute_laplacian(graph)
-    labels = spectral_clustering(laplacian, num_clusters=5)
-    segmented_image = labels.reshape((image.shape[0], image.shape[1]))
-    print(graph.shape)
-    display_results(image, segmented_image)
+    # Load an image
+    # image = cv2.imread('bird.jpg')
+    # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    # # Run SLIC Superpixels
+    # labels = slic_superpixels(image, num_superpixels=200, m=20, num_iterations=10)
+
+    # # Draw contours
+    # contoured = draw_contours(image, labels)
+
+    # # Show the result
+    # import matplotlib.pyplot as plt
+    # plt.figure(figsize=(10, 10))
+    # plt.imshow(contoured)
+    # plt.axis('off')
+    # plt.show()
