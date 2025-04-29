@@ -140,6 +140,8 @@ class regionGrow():
         return np.linalg.norm(self.im[x0, y0] - self.im[x, y])
 
 
+
+
 if __name__ == "__main__":
     # Default values
     image_path = "Data/mri.jpg"  
