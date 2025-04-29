@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 
+
 def rgb2lab(image):
     """Convert RGB image to Lab color space using OpenCV."""
     return cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
@@ -218,51 +219,53 @@ def visualize_clusters(image, labels, superpixel_map, num_clusters):
     plt.show()
 
 
-# Main function to run everything
-def main(image_path, num_clusters=10, num_superpixels=100): 
-    # Step 1: Load the image
-    image = cv2.imread(image_path)
-    
-        # Load an image
-    image = cv2.imread('bird.jpg')
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    
-    # Step 2: Generate superpixels
-    labels, centers = slic_superpixels(image, num_superpixels=num_superpixels, m=10)
+def cluster_image(image, num_superpixels=100, compactness=10, num_iterations=5, num_clusters=5, linkage='single'):
+    """
+    Perform SLIC superpixel segmentation + Agglomerative clustering and return the clustered image.
 
-    # Step 3: Extract features from superpixels
-    features, _ = extract_features(image, labels, num_superpixels)
+    Parameters:
+    - image: input RGB image
+    - num_superpixels: desired number of superpixels
+    - compactness: compactness factor for SLIC
+    - num_iterations: number of SLIC iterations
+    - num_clusters: number of final clusters after Agglomerative clustering
+    - linkage: 'single' or 'complete' linkage method
 
-    # Step 4: Apply Agglomerative Clustering
-    agglomerative = AgglomerativeClusteringFromScratch(n_clusters=num_clusters, linkage='single')
-    agglomerative.fit(features)
+    Returns:
+    - clustered_image: image colored by clusters
+    """
 
-    # Step 5: Visualize the clustering result
-    visualize_clusters(image,  agglomerative.final_labels, labels, num_clusters)
+    labels, _ = slic_superpixels(image, num_superpixels=num_superpixels, m=compactness, num_iterations=num_iterations)
 
-# Run the program with an example image
-image_path = 'bird.jpg'  # Replace with your image path
+    features, _ = extract_features(image, labels, np.max(labels)+1)
+
+    clustering = AgglomerativeClusteringFromScratch(n_clusters=num_clusters, linkage=linkage)
+    clustering.fit(features)
+
+    h, w = labels.shape
+    output_image = np.zeros((h, w, 3), dtype=np.uint8)
+    colors = np.random.randint(0, 255, size=(num_clusters, 3), dtype=np.uint8)
+
+    for superpixel_id in range(len(clustering.final_labels)):
+        mask = (labels == superpixel_id)
+        output_image[mask] = colors[clustering.final_labels[superpixel_id]]
+
+    return output_image
+
+
 
 
 
 
 
 if __name__ == "__main__":
-    main(image_path, num_clusters=2)
+    # main(image_path, num_clusters=2)
 
     # Load an image
-    # image = cv2.imread('bird.jpg')
-    # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = cv2.imread('../../data/bird.jpg')
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    clustered = cluster_image(image, num_superpixels=200, compactness=20, num_clusters=8, linkage='complete')
 
-    # # Run SLIC Superpixels
-    # labels = slic_superpixels(image, num_superpixels=200, m=20, num_iterations=10)
-
-    # # Draw contours
-    # contoured = draw_contours(image, labels)
-
-    # # Show the result
-    # import matplotlib.pyplot as plt
-    # plt.figure(figsize=(10, 10))
-    # plt.imshow(contoured)
-    # plt.axis('off')
-    # plt.show()
+    plt.imshow(clustered)
+    plt.axis('off')
+    plt.show()
