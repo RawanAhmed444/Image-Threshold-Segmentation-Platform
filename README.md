@@ -109,7 +109,6 @@ python main.py
 
 - [OpenCV Documentation](https://docs.opencv.org/)
 - [Scikit-image Segmentation Guide](https://scikit-image.org/docs/stable/user_guide/tutorial_segmentation.html)
-- [Mean Shift Clustering Paper](https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/shape/papers/Comaniciu_MeanShift.pdf)
 - [Agglomerative Clustering Overview](https://scikit-learn.org/stable/modules/clustering.html#hierarchical-clustering)
 
 *You can also have a look at our [report](https://drive.google.com/file/d/15cwDQ7J_kcL8NU-0F3znew6tUgDfxzOc/view?usp=sharing)*
