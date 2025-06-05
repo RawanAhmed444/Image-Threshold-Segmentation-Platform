@@ -1,4 +1,4 @@
-# Threshold Realities & Image Segmentation Application
+# Image Threshold & Segmentation Platform
 
 This application is a user-friendly toolkit for digital image segmentation and thresholding, built with Python. It allows users to explore and apply a variety of classic and advanced segmentation techniques—including global and local thresholding, k-means clustering, mean shift, region growing, and agglomerative clustering—on their own images. All core algorithms are implemented from scratch, with OpenCV used only for image I/O and display.
 
@@ -28,8 +28,6 @@ This application is a user-friendly toolkit for digital image segmentation and t
 - **Modular & Extensible**
   - Clean code structure for easy experimentation and extension
   - Jupyter notebooks for interactive exploration
-
-_All segmentation and thresholding algorithms are implemented from scratch, without using OpenCV for the main processing steps in Python._
 
 ---
 
@@ -69,7 +67,7 @@ Task4-Threshold-Realities-Image-Segmentation/
 
 ![image](https://github.com/user-attachments/assets/243abde8-9e63-400d-9728-58225788fdeb)
 
-*Thresholding Example*
+*Thresholding Examples*
 
 ![image](https://github.com/user-attachments/assets/143712ac-1e14-43f9-b199-6174bba70815)
 ![image](https://github.com/user-attachments/assets/324edcca-95ca-42ad-a72a-cf185b1405de)
