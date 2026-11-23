@@ -96,10 +96,10 @@ python main.py
 
 ## Contributors
 
-* **Rawan Shoaib**: [GitHub Profile](https://github.com/RawanAhmed444)
-* **Ahmed Aldeeb**: [GitHub Profile](https://github.com/AhmedXAlDeeb)
-* **Ahmed Mahmoud**: [GitHub Profile](https://github.com/ahmed-226)
-* **Eman Emad**: [GitHub Profile](https://github.com/Alyaaa16)
+* **Rawan Shoaib**
+* **Ahmed Aldeeb**
+* **Ahmed Mahmoud**
+* **Eman Emad**
 
 ---
 
